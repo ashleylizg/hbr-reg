@@ -1,0 +1,167 @@
+---
+title: "LTER Data Sampler Notebook"
+output:
+  html_document:
+    df_print: paged
+---
+
+
+```{r, warning=FALSE, message=FALSE}
+#install.packages("remotes")
+#remotes::install_github("lter/lterdatasampler")
+library(lterdatasampler)
+library(car)
+library(caTools)
+```
+
+```{r}
+hbr_maples
+```
+
+Creating preliminary graphs to show relationship between the two watersheds and then a few of the predicting variables:
+```{r}
+plot(hbr_maples$watershed, hbr_maples$corrected_leaf_area,
+     xlab='Watershed',
+     ylab='Corrected Leaf Area (cm^2)',
+     main='Sugar Maple Leaf Area for Watershed Samples')
+```
+
+```{r}
+par(mfrow=c(1,3))
+plot(x=hbr_maples$corrected_leaf_area,
+     y=hbr_maples$stem_length,
+     xlab='Leaf Area (cm^2)',
+     ylab='Stem Length (mm)')
+plot(x=hbr_maples$corrected_leaf_area,
+     y=hbr_maples$stem_dry_mass,
+     xlab='Leaf Area (cm^2)',
+     ylab='Stem Dry Mass (g)')
+plot(x=hbr_maples$corrected_leaf_area,
+     y=hbr_maples$leaf_dry_mass,
+     xlab='Leaf Area (cm^2)',
+     ylab='Leaf Dry Mass (g)')
+title("Scatterplots of Stem Length, Stem Dry Mass, and Leaf Dry Mass", line = -1, outer = TRUE)
+```
+
+We can see from the graphs above there appears to be at least one outlier in the data that may need to be addressed depending on the variables that are chosen moving forward. In the models that follow, the leaf_dry_mass will be used as a predicting variable for the corrected_leaf_area.
+
+Checking the given row to be used as the response variable for NA values that might affect prediction:
+```{r}
+sum(is.na(hbr_maples$corrected_leaf_area))
+```
+
+Dropping rows that have a corrected_leaf_area of NA:
+```{r}
+hbr_maples_cleaned <- hbr_maples[!is.na(hbr_maples$corrected_leaf_area),]
+```
+
+Confirm no NAs remain in the corrected_leaf_area column:
+```{r}
+sum(is.na(hbr_maples_cleaned$corrected_leaf_area))
+```
+Check the chosen predicting variable for outliers using a scatterplot and summary statistics. It looks like a leaf_dry_mass of 0.387 g is an outlier so will be removed.
+```{r}
+plot(hbr_maples_cleaned$leaf_dry_mass)
+```
+```{r}
+summary(hbr_maples_cleaned$leaf_dry_mass)
+```
+
+```{r}
+max(hbr_maples_cleaned$leaf_dry_mass)
+```
+Locate the row index we would like to remove:
+```{r}
+hbr_maples_cleaned[match(0.387,hbr_maples_cleaned$leaf_dry_mass),]
+```
+
+```{r}
+hbr_maples_cleaned2 <- hbr_maples_cleaned[-53, ]
+```
+
+Split data into training and test sets for the model.
+```{r}
+set.seed(1)
+maple_split <- sample.split(hbr_maples_cleaned2$corrected_leaf_area, SplitRatio = 0.7)
+train_data <- hbr_maples_cleaned2[maple_split==TRUE,]
+test_data <- hbr_maples_cleaned2[maple_split==FALSE,]
+```
+
+Setting up a model to generate leaf dry mass based on leaf area
+```{r}
+leafarea_model <- lm(corrected_leaf_area ~ leaf_dry_mass, data=train_data)
+summary(leafarea_model)
+```
+The estimated simple linear regression equation would be:
+Corrected Leaf Area = 9.3121 + 350.8474(Leaf Dry Mass)
+
+```{r}
+confint(leafarea_model)
+```
+
+The confidence interval, at a default 95%, shows the coefficient for leaf dry mass to be between ~329 and 373.
+
+Plotting the residuals versus the fitted values from the model:
+```{r}
+leafarea_resids <- residuals(leafarea_model)
+leafarea_fitted <- leafarea_model$fitted
+
+plot(leafarea_fitted, leafarea_resids,
+     main='Resdiuals vs Fitted Values of Leaf Area Model',
+     xlab='Fitted Values',
+     ylab='Residual Values')
+lines(lowess(leafarea_fitted, leafarea_resids), col='red')
+```
+
+According to this plot, it does not appear as if there's constant variance among the plotted residuals. Some of the values to the right of the plot display more variance than the majority of values plotted to the left.
+
+```{r}
+par(mfrow=c(1,2))
+hist(leafarea_resids,main="Histogram of Residuals",xlab="Residuals")
+qqnorm(leafarea_resids)
+```
+
+The histogram shows what appears to be a fairly normal distribution, but heavy potential outliers on one side of the graph. The QQ-plot shows some distant values near the left tail and a curved tail on the right. This means the normal distribution of the data may need more improvement.
+
+To show and identify any outliers in the data, the Cook's distance can be used.
+```{r}
+cd_leafarea_model <- cooks.distance(leafarea_model)
+```
+
+```{r}
+leafarea_model_abovethreshold <- as.numeric(names(cd_leafarea_model)[(cd_leafarea_model > 1)])
+print(leafarea_model_abovethreshold)
+```
+Based on this, a new model will be made omitting this row. We can see from the summary output this model is the same as model1, so removing the one outlier did not have an effect.
+```{r}
+train_data_cleaned <- train_data[-leafarea_model_abovethreshold, ]
+leafarea_model2 <- lm(corrected_leaf_area ~ leaf_dry_mass, data=train_data_cleaned)
+summary(leafarea_model2)
+```
+
+The Box-Cox transformation will see if there's a suggested data transformation to improve the model assumptions for simple linear regression.
+```{r}
+bc_leafarea <- boxCox(leafarea_model2)
+```
+```{r}
+lambda_bc_model2 <- bc_leafarea$x[which(bc_leafarea$y==max(bc_leafarea$y))]
+print(lambda_bc_model2)
+```
+```{r}
+round(lambda_bc_model2/0.5)*0.5
+```
+When rounded to the nearest 0.5, this lambda value would be equal to 1. That means there is no suggested transformation for improving the model.
+
+From the summary output, we can see that both models are estimated to explain about 86% of the variance in the corrected leaf area.
+
+Predicting using the test data for the main model and finding the mean squared prediction error (MSPE):
+```{r}
+pred_test <- predict(leafarea_model, test_data)
+mse.model <- mean((pred_test-test_data$corrected_leaf_area)^2)
+cat("The mean squared prediction error is",mse.model,"\n")
+```
+The MSPE indicates there is about a 9.34 cm^2 prediction error from the model. To note, this regression was performed on a very small dataset and is meant to be shown as an example of the workflow for the simple linear regression process.
+
+Data Source:
+
+Juice, S. and T. Fahey. 2019. Health and mycorrhizal colonization response of sugar maple (Acer saccharum) seedlings to calcium addition in Watershed 1 at the Hubbard Brook Experimental Forest ver 3. Environmental Data Initiative. https://doi.org/10.6073/pasta/0ade53ede9a916a36962799b2407097e
