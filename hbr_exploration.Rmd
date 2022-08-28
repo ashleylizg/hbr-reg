@@ -107,7 +107,7 @@ leafarea_resids <- residuals(leafarea_model)
 leafarea_fitted <- leafarea_model$fitted
 
 plot(leafarea_fitted, leafarea_resids,
-     main='Resdiuals vs Fitted Values of Leaf Area Model',
+     main='Residuals vs Fitted Values of Leaf Area Model',
      xlab='Fitted Values',
      ylab='Residual Values')
 lines(lowess(leafarea_fitted, leafarea_resids), col='red')
