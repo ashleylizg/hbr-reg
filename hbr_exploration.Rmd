@@ -160,7 +160,7 @@ pred_test <- predict(leafarea_model, test_data)
 mse.model <- mean((pred_test-test_data$corrected_leaf_area)^2)
 cat("The mean squared prediction error is",mse.model,"\n")
 ```
-The MSPE indicates there is about a 9.34 cm^2 prediction error from the model. To note, this regression was performed on a very small dataset and is meant to be shown as an example of the workflow for the simple linear regression process.
+The MSPE is about a 9.34 and can be used as a comparison for performance if other models are created. To note, this regression was performed on a very small dataset and is meant to be shown as an example of the workflow for the simple linear regression process.
 
 Data Source:
 
